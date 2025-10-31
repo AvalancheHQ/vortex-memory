@@ -90,14 +90,15 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
         let file = File::open(bench_file_name).unwrap();
 
         let file_device_slice = read_file_to_device(&cuda_ctx.default_stream(), file);
-        // SAFETY: This is only fine because the callers of this function will be dropped before this segment source is dropped
-        let device_view = unsafe {
-            mem::transmute::<CudaView<'_, u8>, CudaView<'static, u8>>(file_device_slice.as_view())
-        };
+        let slice_view = &file_device_slice;
 
         group.throughput(Throughput::Bytes((len * size_of::<u32>() * 2) as u64));
         group.bench_function(*label, |b| {
             b.to_async(&runtime).iter_with_large_drop(async || {
+                // SAFETY: This is only fine because the callers of this function will be dropped before this segment source is dropped
+                let device_view = unsafe {
+                    mem::transmute::<CudaView<'_, u8>, CudaView<'static, u8>>(slice_view.as_view())
+                };
                 let vx_file = VortexOpenOptions::new()
                     .open(bench_file_name)
                     .await
