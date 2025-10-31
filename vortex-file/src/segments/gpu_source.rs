@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+use std::mem;
 use std::sync::{Arc, OnceLock};
 
 use cudarc::cufile::{Cufile, FileHandle};
@@ -45,7 +46,8 @@ impl FileGpuSegmentSource {
     }
 
     fn contents(&self) -> CudaView<'static, u8> {
-        self.contents
+        let contents_view = self
+            .contents
             .get_or_init(|| {
                 let mut cu_slice = unsafe { self.stream.alloc::<u8>(self.length as usize) }
                     .map_err(|e| vortex_err!("cu slice {e}"))
@@ -56,7 +58,9 @@ impl FileGpuSegmentSource {
                     .vortex_unwrap();
                 cu_slice
             })
-            .as_view()
+            .as_view();
+        // SAFETY: This is only fine because the callers of this function will be dropped before this segment source is dropped
+        unsafe { mem::transmute::<CudaView<'_, u8>, CudaView<'static, u8>>(contents_view) }
     }
 }
 
@@ -71,9 +75,6 @@ impl GpuSegmentSource for FileGpuSegmentSource {
         let off_usize = usize::try_from(spec.offset).vortex_expect("offset must fit usize");
         let len_usize = usize::try_from(spec.length).vortex_expect("length must fit usize");
 
-        async move {
-            self.contents().slice(off_usize..len_usize);
-        }
-        .boxed()
+        async move { self.contents().slice(off_usize..len_usize) }.boxed()
     }
 }
