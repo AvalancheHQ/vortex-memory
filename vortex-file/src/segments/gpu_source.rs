@@ -74,6 +74,6 @@ impl GpuSegmentSource for FileGpuSegmentSource {
         let off_usize = usize::try_from(spec.offset).vortex_expect("offset must fit usize");
         let len_usize = usize::try_from(spec.length).vortex_expect("length must fit usize");
 
-        Ok(self.contents().slice(off_usize..len_usize))
+        Ok(self.contents().slice(off_usize..(off_usize + len_usize)))
     }
 }
