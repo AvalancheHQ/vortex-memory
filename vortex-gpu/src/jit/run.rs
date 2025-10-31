@@ -62,7 +62,7 @@ pub fn create_run_jit_kernel(
         let mut out = unsafe {
             stream
                 .alloc::<P>(len)
-                .map_err(|e| vortex_err!("failed to alloc zeros {e}"))?
+                .map_err(|e| vortex_err!("failed to alloc output {e}"))?
         };
         launch_builder.arg(&mut out);
         let start = stream

@@ -6,6 +6,8 @@
 use std::fs::File;
 use std::mem;
 use std::sync::Arc;
+use std::thread::sleep;
+use std::time::Duration;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use cudarc::cufile::Cufile;
@@ -92,6 +94,8 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
         let file_device_slice = read_file_to_device(&cuda_ctx.default_stream(), file);
         let slice_view = &file_device_slice;
 
+        sleep(Duration::from_millis(60 * 1000));
+
         group.throughput(Throughput::Bytes((len * size_of::<u32>() * 2) as u64));
         group.bench_function(*label, |b| {
             b.to_async(&runtime).iter_with_large_drop(async || {
@@ -103,7 +107,7 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
                     .open(bench_file_name)
                     .await
                     .vortex_unwrap();
-                let stream = vx_file
+                vx_file
                     .gpu_scan(
                         cuda_ctx.clone(),
                         Arc::new(FileGpuSegmentSource::new(
@@ -117,19 +121,6 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
                     .try_collect::<Vec<_>>()
                     .await
                     .vortex_unwrap();
-                stream
-
-                // VortexOpenOptions::new()
-                //     .open(bench_file_name)
-                //     .await
-                //     .vortex_unwrap()
-                //     .gpu_scan(ctx.clone())
-                //     .vortex_unwrap()
-                //     .into_array_stream()
-                //     .vortex_unwrap()
-                //     .try_collect::<Vec<_>>()
-                //     .await
-                //     .vortex_unwrap()
             });
         });
     }
