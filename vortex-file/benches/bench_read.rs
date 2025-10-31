@@ -3,10 +3,12 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::fs::File;
 use std::sync::Arc;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use cudarc::driver::CudaContext;
+use cudarc::cufile::Cufile;
+use cudarc::driver::{CudaContext, CudaSlice, CudaStream};
 use futures::TryStreamExt;
 use rand::prelude::IteratorRandom;
 use rand::{Rng, rng};
@@ -14,7 +16,7 @@ use tokio::runtime::Runtime;
 use vortex_array::arrays::StructArray;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
-use vortex_error::VortexUnwrap;
+use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex_file::{FileGpuSegmentSource, VortexOpenOptions, VortexWriteOptions};
 
 // Data sizes: 1GB, 2.5GB, 5GB, 10GB
@@ -41,6 +43,27 @@ fn make_test_array(len: usize) -> ArrayRef {
         .into_array()
 }
 
+fn read_file_to_device(stream: &Arc<CudaStream>, file: File) -> CudaSlice<u8> {
+    let len = file.metadata().unwrap().len();
+    let cu_file = Cufile::new()
+        .map_err(|e| vortex_err!("cu file {e}"))
+        .vortex_expect("Failed to create cufile");
+
+    let file_handle = cu_file
+        .register(file)
+        .map_err(|e| vortex_err!("cu file register {e}"))
+        .vortex_unwrap();
+
+    let mut cu_slice = unsafe { stream.alloc::<u8>(len as usize) }
+        .map_err(|e| vortex_err!("cu slice {e}"))
+        .vortex_expect("Failed to allocate cu slice");
+    file_handle
+        .sync_read(0, &mut cu_slice)
+        .map_err(|e| vortex_err!("sync read {e}"))
+        .vortex_unwrap();
+    cu_slice
+}
+
 fn benchmark_gpu_scan(c: &mut Criterion) {
     let runtime = Runtime::new().unwrap();
     let mut group = c.benchmark_group("gpu_scan");
@@ -61,13 +84,15 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
                 .await
                 .unwrap();
         });
-
         let cuda_ctx = CudaContext::new(0).unwrap();
         cuda_ctx.set_blocking_synchronize().unwrap();
+        let file = std::fs::File::open(bench_file_name).unwrap();
+
+        let file_device_slice = read_file_to_device(&cuda_ctx.default_stream(), file);
+
         group.throughput(Throughput::Bytes((len * size_of::<u32>() * 2) as u64));
         group.bench_function(*label, |b| {
             b.to_async(&runtime).iter_with_large_drop(async || {
-                let file = std::fs::File::open(bench_file_name).unwrap();
                 let vx_file = VortexOpenOptions::new()
                     .open(bench_file_name)
                     .await
@@ -77,8 +102,7 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
                         cuda_ctx.clone(),
                         Arc::new(FileGpuSegmentSource::new(
                             vx_file.footer.segment_map().clone(),
-                            cuda_ctx.default_stream(),
-                            file,
+                            file_device_slice,
                         )),
                     )
                     .vortex_unwrap()
