@@ -86,7 +86,7 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
         });
         let cuda_ctx = CudaContext::new(0).unwrap();
         cuda_ctx.set_blocking_synchronize().unwrap();
-        let file = std::fs::File::open(bench_file_name).unwrap();
+        let file = File::open(bench_file_name).unwrap();
 
         let file_device_slice = read_file_to_device(&cuda_ctx.default_stream(), file);
 
@@ -102,7 +102,7 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
                         cuda_ctx.clone(),
                         Arc::new(FileGpuSegmentSource::new(
                             vx_file.footer.segment_map().clone(),
-                            file_device_slice,
+                            file_device_slice.clone(),
                         )),
                     )
                     .vortex_unwrap()
