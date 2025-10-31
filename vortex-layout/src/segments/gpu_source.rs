@@ -7,7 +7,7 @@ use vortex_gpu::CudaByteBuffer;
 
 use crate::segments::SegmentId;
 
-pub type GpuSegmentFuture = BoxFuture<'static, VortexResult<CudaByteBuffer>>;
+pub type GpuSegmentFuture = VortexResult<CudaByteBuffer>;
 
 /// A trait for providing segment data to a [`crate::LayoutReader`].
 pub trait GpuSegmentSource: 'static + Send + Sync {

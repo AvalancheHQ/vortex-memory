@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock};
 
 use cudarc::cufile::{Cufile, FileHandle};
 use cudarc::driver::{CudaSlice, CudaStream, CudaView};
-use futures::FutureExt;
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex_layout::segments::{GpuSegmentFuture, GpuSegmentSource, SegmentId};
 
@@ -75,6 +74,6 @@ impl GpuSegmentSource for FileGpuSegmentSource {
         let off_usize = usize::try_from(spec.offset).vortex_expect("offset must fit usize");
         let len_usize = usize::try_from(spec.length).vortex_expect("length must fit usize");
 
-        async move { self.contents().slice(off_usize..len_usize) }.boxed()
+        Ok(self.contents().slice(off_usize..len_usize))
     }
 }

@@ -58,7 +58,7 @@ impl GpuFlatReader {
             .clone();
         async move {
             let tree = tree;
-            let segment = segment_fut.await?;
+            let segment = segment_fut?;
             let mut parts = GpuArrayParts::new(&tree, segment, ctx);
 
             Ok(parts.create_array(&dtype, row_count))
