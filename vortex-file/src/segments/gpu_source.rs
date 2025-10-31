@@ -2,11 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use cudarc::cufile;
 use cudarc::cufile::{Cufile, FileHandle};
-use cudarc::driver::CudaStream;
+use cudarc::driver::{CudaSlice, CudaStream, CudaView};
 use futures::FutureExt;
 use vortex_error::{VortexExpect, VortexUnwrap, vortex_err};
 use vortex_layout::segments::{GpuSegmentFuture, GpuSegmentSource, SegmentId};
@@ -19,10 +18,13 @@ pub struct FileGpuSegmentSource {
     #[allow(dead_code)]
     cu_file: Arc<Cufile>,
     file_handle: Arc<FileHandle>,
+    contents: OnceLock<CudaSlice<u8>>,
+    length: u64,
 }
 
 impl FileGpuSegmentSource {
     pub fn new(segments: Arc<[SegmentSpec]>, stream: Arc<CudaStream>, file: File) -> Self {
+        let len = file.metadata().unwrap().len();
         let cu_file = Cufile::new()
             .map_err(|e| vortex_err!("cu file {e}"))
             .vortex_expect("Failed to create cufile");
@@ -37,7 +39,24 @@ impl FileGpuSegmentSource {
             stream,
             cu_file,
             file_handle: Arc::new(file_handle),
+            contents: OnceLock::new(),
+            length: len,
         }
+    }
+
+    fn contents(&self) -> CudaView<'static, u8> {
+        self.contents
+            .get_or_init({
+                let mut cu_slice = unsafe { self.stream.alloc::<u8>(self.length as usize) }
+                    .map_err(|e| vortex_err!("cu slice {e}"))
+                    .vortex_expect("Failed to allocate cu slice");
+                self.file_handle
+                    .sync_read(0, &mut cu_slice)
+                    .map_err(|e| vortex_err!("sync read {e}"))
+                    .vortex_unwrap();
+                Ok(cu_slice)
+            })
+            .as_view()
     }
 }
 

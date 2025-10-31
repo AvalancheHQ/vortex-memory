@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use cudarc::driver::DeviceSlice;
 use flatbuffers::root;
 use vortex_alp::{ALPEncoding, ALPFloat, ALPVTable, match_each_alp_float_ptype};
 use vortex_array::flatbuffers::ArrayNode;
@@ -34,8 +35,6 @@ impl<'a> GpuArrayParts<'a> {
 
         let mut offset = 0;
 
-        let stream = buffer_slice.stream();
-
         let buffers: Vec<Option<CudaByteBuffer>> = array
             .buffers()
             .unwrap_or_default()
@@ -49,16 +48,8 @@ impl<'a> GpuArrayParts<'a> {
                 // Extract a buffer and ensure it's aligned, copying if necessary
                 let view = buffer_slice.slice(offset..(offset + buffer_len));
 
-                let mut buffer = unsafe { stream.alloc(view.len()) }
-                    .ok()
-                    .vortex_expect("alloc");
-                stream
-                    .memcpy_dtod(&view, &mut buffer)
-                    .ok()
-                    .vortex_expect("memcpy");
-
                 offset += buffer_len;
-                Some(buffer)
+                Some(view)
             })
             .collect();
 
