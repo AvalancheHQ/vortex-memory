@@ -4,11 +4,12 @@
 #![allow(clippy::unwrap_used)]
 
 use std::fs::File;
+use std::mem;
 use std::sync::Arc;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use cudarc::cufile::Cufile;
-use cudarc::driver::{CudaContext, CudaSlice, CudaStream};
+use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaView};
 use futures::TryStreamExt;
 use rand::prelude::IteratorRandom;
 use rand::{Rng, rng};
@@ -89,6 +90,10 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
         let file = File::open(bench_file_name).unwrap();
 
         let file_device_slice = read_file_to_device(&cuda_ctx.default_stream(), file);
+        // SAFETY: This is only fine because the callers of this function will be dropped before this segment source is dropped
+        let device_view = unsafe {
+            mem::transmute::<CudaView<'_, u8>, CudaView<'static, u8>>(file_device_slice.as_view())
+        };
 
         group.throughput(Throughput::Bytes((len * size_of::<u32>() * 2) as u64));
         group.bench_function(*label, |b| {
@@ -102,7 +107,7 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
                         cuda_ctx.clone(),
                         Arc::new(FileGpuSegmentSource::new(
                             vx_file.footer.segment_map().clone(),
-                            file_device_slice.clone(),
+                            device_view,
                         )),
                     )
                     .vortex_unwrap()
