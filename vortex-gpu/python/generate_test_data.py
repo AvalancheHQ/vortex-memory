@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-Generate a test Parquet file with two columns and configurable number of rows.
-
-Columns:
-  - u32_col: uint32 values (random between min_value and max_value)
-  - u64_col: uint64 values (random between min_value and max_value)
-
-Usage:
-    python generate_test_data.py [output_file]
-
-Example:
-    python generate_test_data.py test_data.parquet
-    python generate_test_data.py --rows 100000000 data.parquet
-"""
 
 import argparse
 import numpy as np
@@ -22,7 +8,7 @@ import pyarrow.parquet as pq
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate a test Parquet file with u32 and u64 columns"
+        description="Generate a test Parquet file with u32 and f32 columns"
     )
     parser.add_argument(
         "output_file",
@@ -34,20 +20,8 @@ def main():
     parser.add_argument(
         "--rows",
         type=int,
-        default=100_000_000,
-        help="Number of rows to generate (default: 1,000,000)"
-    )
-    parser.add_argument(
-        "--min-value",
-        type=int,
-        default=10_000,
-        help="Minimum value for u64 column (default: 10,000)"
-    )
-    parser.add_argument(
-        "--max-value",
-        type=int,
-        default=100_000,
-        help="Maximum value for u64 column (default: 100,000)"
+        default=268_435_456,
+        help="Number of rows to generate (default: 268,435,456)"
     )
     parser.add_argument(
         "--seed",
@@ -59,31 +33,19 @@ def main():
     args = parser.parse_args()
 
     print(f"Generating Parquet file with {args.rows:,} rows...")
-    print(f"  u32_col: random values between {args.min_value:,} and {args.max_value:,}")
-    print(f"  u64_col: random values between {args.min_value:,} and {args.max_value:,}")
     print(f"  Random seed: {args.seed}")
 
     # Set random seed for reproducibility
     np.random.seed(args.seed)
-
-    # Generate data
-    u32_col = np.random.randint(
-        args.min_value,
-        args.max_value + 1,  # +1 because randint is exclusive on upper bound
-        size=args.rows,
-        dtype=np.uint32
-    )
-    u64_col = np.random.randint(
-        args.min_value,
-        args.max_value + 1,  # +1 because randint is exclusive on upper bound
-        size=args.rows,
-        dtype=np.uint64
-    )
+    rng = np.random.default_rng()
+    numbers = rng.integers(0, 64, size=args.rows, dtype=np.uint32)
+    float_values = np.arange(64, dtype=np.float32) / 10.0
+    floats = rng.choice(float_values, size=args.rows).astype(np.float32)
 
     # Create PyArrow table
     table = pa.table({
-        'u32_col': pa.array(u32_col, type=pa.uint32()),
-        'u64_col': pa.array(u64_col, type=pa.uint64())
+        'numbers': pa.array(numbers, type=pa.uint32()),
+        'floats': pa.array(floats, type=pa.float32())
     })
 
     # Write to Parquet
@@ -95,11 +57,11 @@ def main():
     print(f"✓ File created successfully!")
     print(f"  File size: {file_size_mb:.2f} MB")
     print(f"  Rows: {args.rows:,}")
-    print(f"  Columns: u32_col (uint32), u64_col (uint64)")
+    print(f"  Columns: numbers (uint32), floats (float32)")
 
     # Show sample data
     print("\nSample data (first 5 rows):")
-    sample_table = pq.read_table(args.output_file, columns=['u32_col', 'u64_col'])
+    sample_table = pq.read_table(args.output_file, columns=['numbers', 'floats'])
     print(sample_table.to_pandas().head())
 
 
