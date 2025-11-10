@@ -29,7 +29,7 @@ def main():
     parser.add_argument(
         "--column",
         type=str,
-        default="x",
+        default="numbers",
         help="Name of the column to add 10 to (default: 'x')"
     )
     parser.add_argument(
