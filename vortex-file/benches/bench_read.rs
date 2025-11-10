@@ -15,7 +15,7 @@ use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaView};
 use futures::TryStreamExt;
 use rand::prelude::IteratorRandom;
 use rand::{Rng, rng};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 use vortex_array::arrays::StructArray;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
@@ -68,7 +68,11 @@ fn read_file_to_device(stream: &Arc<CudaStream>, file: File) -> CudaSlice<u8> {
 }
 
 fn benchmark_gpu_scan(c: &mut Criterion) {
-    let runtime = Runtime::new().unwrap();
+    let runtime = Builder::new_multi_thread()
+        .worker_threads(8)
+        .enable_all()
+        .build()
+        .unwrap();
     let mut group = c.benchmark_group("gpu_scan");
 
     group.sample_size(10);
