@@ -6,8 +6,6 @@
 use std::fs::File;
 use std::mem;
 use std::sync::Arc;
-use std::thread::sleep;
-use std::time::Duration;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use cudarc::cufile::Cufile;
@@ -15,7 +13,7 @@ use cudarc::driver::{CudaContext, CudaSlice, CudaStream, CudaView};
 use futures::TryStreamExt;
 use rand::prelude::IteratorRandom;
 use rand::{Rng, rng};
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Runtime;
 use vortex_array::arrays::StructArray;
 use vortex_array::{ArrayRef, IntoArray};
 use vortex_buffer::Buffer;
@@ -68,11 +66,7 @@ fn read_file_to_device(stream: &Arc<CudaStream>, file: File) -> CudaSlice<u8> {
 }
 
 fn benchmark_gpu_scan(c: &mut Criterion) {
-    let runtime = Builder::new_multi_thread()
-        .worker_threads(8)
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = Runtime::new().unwrap();
     let mut group = c.benchmark_group("gpu_scan");
 
     group.sample_size(10);
@@ -97,8 +91,6 @@ fn benchmark_gpu_scan(c: &mut Criterion) {
 
         let file_device_slice = read_file_to_device(&cuda_ctx.default_stream(), file);
         let slice_view = &file_device_slice;
-
-        sleep(Duration::from_millis(60 * 1000));
 
         group.throughput(Throughput::Bytes((len * size_of::<u32>() * 2) as u64));
         group.bench_function(*label, |b| {
