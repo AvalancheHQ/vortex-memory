@@ -19,8 +19,7 @@ use crate::{
     LayoutChildType, LayoutEncodingRef, LayoutId, LayoutReaderRef, LayoutRef, VTable, vtable,
 };
 
-static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
-    LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok());
+static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> = LazyLock::new(|| true);
 
 vtable!(Flat);
 
