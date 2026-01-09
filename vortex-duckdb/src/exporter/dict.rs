@@ -4,9 +4,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
-use parking_lot::Mutex;
 use vortex::array::Array;
 use vortex::array::ToCanonical;
 use vortex::array::VectorExecutor;
@@ -28,9 +26,10 @@ use vortex::session::VortexSession;
 use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVector;
 
+use crate::duckdb::LogicalType;
+use crate::duckdb::ReusableDict;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::Vector;
-use crate::duckdb::{LogicalType, ReusableDict};
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
@@ -43,8 +42,6 @@ struct DictExporter<I: IntegerPType> {
     values: ReusableDict,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
-    cache_id: u64,
-    value_id: usize,
 }
 
 pub(crate) fn new_exporter_with_flatten(
@@ -98,7 +95,7 @@ pub(crate) fn new_exporter_with_flatten(
     } else {
         // Check if we have a cached vector and extract it if we do.
         let reusable_dict = cache
-            .values_cache
+            .dict_cache
             .get(&values_key)
             .map(|entry| entry.value().1.clone());
 
@@ -111,7 +108,7 @@ pub(crate) fn new_exporter_with_flatten(
                 new_array_exporter(values, cache)?.export(0, values.len(), &mut dict_vector)?;
 
                 cache
-                    .values_cache
+                    .dict_cache
                     .insert(values_key, (values.clone(), reusable_dict.clone()));
 
                 reusable_dict
@@ -124,8 +121,6 @@ pub(crate) fn new_exporter_with_flatten(
             values: reusable_dict,
             codes,
             codes_type: PhantomData::<I>,
-            cache_id: cache.instance_id(),
-            value_id: values_key,
         }))
     })
 }
@@ -153,8 +148,6 @@ struct DictVectorExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
     values: ReusableDict,
     codes: PVector<I>,
-    cache_id: u64,
-    value_id: usize,
 }
 
 pub(crate) fn new_vector_exporter_with_flatten(
@@ -211,7 +204,7 @@ pub(crate) fn new_vector_exporter_with_flatten(
     } else {
         // Check if we have a cached vector and extract it if we do.
         let reusable_dict = cache
-            .values_cache
+            .dict_cache
             .get(&values_key)
             .map(|entry| entry.value().1.clone());
 
@@ -224,7 +217,7 @@ pub(crate) fn new_vector_exporter_with_flatten(
                 new_array_exporter(values, cache)?.export(0, values.len(), &mut dict_vector)?;
 
                 cache
-                    .values_cache
+                    .dict_cache
                     .insert(values_key, (values.clone(), reusable_dict.clone()));
 
                 reusable_dict
@@ -236,8 +229,6 @@ pub(crate) fn new_vector_exporter_with_flatten(
         Ok(Box::new(DictVectorExporter {
             values: reusable_dict,
             codes: codes.downcast::<I>(),
-            cache_id: cache.instance_id(),
-            value_id: values_key,
         }))
     })
 }
