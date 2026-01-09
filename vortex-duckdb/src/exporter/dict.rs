@@ -28,9 +28,9 @@ use vortex::session::VortexSession;
 use vortex_vector::VectorOps;
 use vortex_vector::primitive::PVector;
 
-use crate::duckdb::LogicalType;
 use crate::duckdb::SelectionVector;
 use crate::duckdb::Vector;
+use crate::duckdb::{LogicalType, ReusableDict};
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
@@ -40,8 +40,7 @@ use crate::exporter::new_vector_array_exporter;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
-    values_len: u32,
+    values: ReusableDict,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
     cache_id: u64,
@@ -80,7 +79,7 @@ pub(crate) fn new_exporter_with_flatten(
     let values_key = Arc::as_ptr(values).addr();
     let codes = array.codes().to_primitive();
 
-    let exporter_values = if flatten {
+    let reusable_dict = if flatten {
         let canonical = cache
             .canonical_cache
             .get(&values_key)
@@ -98,32 +97,31 @@ pub(crate) fn new_exporter_with_flatten(
         return new_array_exporter(&compute::take(canonical.as_ref(), codes.as_ref())?, cache);
     } else {
         // Check if we have a cached vector and extract it if we do.
-        let cached_vector = cache
+        let reusable_dict = cache
             .values_cache
             .get(&values_key)
             .map(|entry| entry.value().1.clone());
 
-        match cached_vector {
-            Some(vector) => vector,
+        match reusable_dict {
+            Some(reusable_dict) => reusable_dict,
             None => {
-                // Create a new DuckDB vector for the values.
-                let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
-                new_array_exporter(values, cache)?.export(0, values.len(), &mut vector)?;
+                // Create a new reusable dictionary for the values.
+                let reusable_dict = ReusableDict::new(values.dtype().try_into()?, values.len());
+                let mut dict_vector = reusable_dict.vector();
+                new_array_exporter(values, cache)?.export(0, values.len(), &mut dict_vector)?;
 
-                let vector = Arc::new(Mutex::new(vector));
                 cache
                     .values_cache
-                    .insert(values_key, (values.clone(), vector.clone()));
+                    .insert(values_key, (values.clone(), reusable_dict.clone()));
 
-                vector
+                reusable_dict
             }
         }
     };
 
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictExporter {
-            values_vector: exporter_values,
-            values_len: values.len().as_u32(),
+            values: reusable_dict,
             codes,
             codes_type: PhantomData::<I>,
             cache_id: cache.instance_id(),
@@ -145,22 +143,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
             *dst = src
         }
 
-        // DuckDB requires the value vector which references the data to be
-        // unique. Otherwise, DuckDB races on the values vector passed to the
-        // dictionary.
-        let new_values_vector = {
-            let values_vector = self.values_vector.lock();
-            let mut new_values_vector = Vector::new(values_vector.logical_type());
-            // Shares the underlying data which determines the vectors length.
-            new_values_vector.reference(&values_vector);
-            new_values_vector
-        };
-
-        vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
-
-        // Use a unique id for each dictionary data array -- telling duckdb that
-        // the dict value vector is the same as reuse the hash in a join.
-        vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
+        vector.reuse_dictionary(&self.values, &sel_vec);
 
         Ok(())
     }
@@ -168,8 +151,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
 struct DictVectorExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
-    values_len: u32,
+    values: ReusableDict,
     codes: PVector<I>,
     cache_id: u64,
     value_id: usize,
@@ -209,7 +191,7 @@ pub(crate) fn new_vector_exporter_with_flatten(
 
     let values_key = Arc::as_ptr(values).addr();
 
-    let exporter_values = if flatten {
+    let reusable_dict = if flatten {
         let values = cache.vector_cache.get(&values_key);
         let values = match values {
             Some(c) => c.value().1.clone(),
@@ -228,36 +210,31 @@ pub(crate) fn new_vector_exporter_with_flatten(
         );
     } else {
         // Check if we have a cached vector and extract it if we do.
-        let cached_vector = cache
+        let reusable_dict = cache
             .values_cache
             .get(&values_key)
             .map(|entry| entry.value().1.clone());
 
-        match cached_vector {
-            Some(vector) => vector,
+        match reusable_dict {
+            Some(reusable_dict) => reusable_dict,
             None => {
-                // Create a new DuckDB vector for the values.
-                let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
-                new_vector_array_exporter(values.clone(), cache, session)?.export(
-                    0,
-                    values.len(),
-                    &mut vector,
-                )?;
+                // Create a new reusable dictionary for the values.
+                let reusable_dict = ReusableDict::new(values.dtype().try_into()?, values.len());
+                let mut dict_vector = reusable_dict.vector();
+                new_array_exporter(values, cache)?.export(0, values.len(), &mut dict_vector)?;
 
-                let vector = Arc::new(Mutex::new(vector));
                 cache
                     .values_cache
-                    .insert(values_key, (values.clone(), vector.clone()));
+                    .insert(values_key, (values.clone(), reusable_dict.clone()));
 
-                vector
+                reusable_dict
             }
         }
     };
 
     match_each_integer_ptype!(codes.ptype(), |I| {
         Ok(Box::new(DictVectorExporter {
-            values_vector: exporter_values,
-            values_len: values.len().as_u32(),
+            values: reusable_dict,
             codes: codes.downcast::<I>(),
             cache_id: cache.instance_id(),
             value_id: values_key,
@@ -278,22 +255,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictVectorExporter<I
             *dst = src
         }
 
-        // DuckDB requires the value vector which references the data to be
-        // unique. Otherwise, DuckDB races on the values vector passed to the
-        // dictionary.
-        let new_values_vector = {
-            let values_vector = self.values_vector.lock();
-            let mut new_values_vector = Vector::new(values_vector.logical_type());
-            // Shares the underlying data which determines the vectors length.
-            new_values_vector.reference(&values_vector);
-            new_values_vector
-        };
-
-        vector.dictionary(&new_values_vector, self.values_len as usize, &sel_vec, len);
-
-        // Use a unique id for each dictionary data array -- telling duckdb that
-        // the dict value vector is the same as reuse the hash in a join.
-        vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
+        vector.reuse_dictionary(&self.values, &sel_vec);
 
         Ok(())
     }
