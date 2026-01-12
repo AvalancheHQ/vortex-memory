@@ -13,9 +13,12 @@ use vortex_vector::Vector;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
+use crate::DeserializeMetadata;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::VectorExecutor;
 use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::StructMetadata;
 use crate::arrays::struct_::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
@@ -42,7 +45,7 @@ vtable!(Struct);
 impl VTable for StructVTable {
     type Array = StructArray;
 
-    type Metadata = EmptyMetadata;
+    type Metadata = ProstMetadata<StructMetadata>;
 
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
@@ -60,23 +63,26 @@ impl VTable for StructVTable {
         StructVTable.as_vtable()
     }
 
-    fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn metadata(array: &StructArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(StructMetadata {
+            validity_pushed_down: array.validity_pushed_down,
+        }))
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(buffer)?;
+        Ok(ProstMetadata(metadata))
     }
 
     fn build(
         &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<StructArray> {
@@ -108,7 +114,10 @@ impl VTable for StructVTable {
             })
             .try_collect()?;
 
-        StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+        Ok(
+            StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)?
+                .with_validity_pushed_down(metadata.validity_pushed_down),
+        )
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

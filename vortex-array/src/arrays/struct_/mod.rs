@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::StructArray;
+pub use array::StructMetadata;
 mod compute;
 
 mod vtable;
