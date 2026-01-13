@@ -84,6 +84,7 @@ pub(crate) struct VortexOpener {
     pub has_output_ordering: bool,
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
+    pub scan_concurrency: Option<usize>,
 }
 
 impl FileOpener for VortexOpener {
@@ -105,6 +106,7 @@ impl FileOpener for VortexOpener {
         let metrics = self.metrics.clone();
         let layout_reader = self.layout_readers.clone();
         let has_output_ordering = self.has_output_ordering;
+        let scan_concurrency = self.scan_concurrency;
 
         let expr_convertor = self.expression_convertor.clone();
 
@@ -289,6 +291,10 @@ impl FileOpener for VortexOpener {
                 && filter.is_none()
             {
                 scan_builder = scan_builder.with_limit(limit);
+            }
+
+            if let Some(concurrency) = scan_concurrency {
+                scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
             let stream = scan_builder
@@ -500,6 +506,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         }
     }
 
@@ -591,6 +598,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -674,6 +682,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         };
 
         // The opener should successfully open the file and reorder columns
@@ -826,6 +835,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -882,6 +892,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         }
     }
 
@@ -1080,6 +1091,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

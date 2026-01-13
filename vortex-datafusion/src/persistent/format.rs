@@ -97,6 +97,8 @@ config_namespace! {
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
         /// during footer parsing.
         pub footer_initial_read_size_bytes: usize, default = DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES
+        /// The per-file Vortex scan concurrency.
+        pub scan_concurrency: Option<usize>, default = None
     }
 }
 
@@ -424,11 +426,13 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(VortexSource::new(
-            table_schema,
-            self.session.clone(),
-            self.file_cache.clone(),
-        ))
+        let mut source =
+            VortexSource::new(table_schema, self.session.clone(), self.file_cache.clone());
+        if let Some(scan_concurrency) = self.opts.scan_concurrency {
+            source = source.with_scan_concurrency(scan_concurrency);
+        }
+
+        Arc::new(source) as _
     }
 }
 
@@ -479,7 +483,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION '{}' \
-                OPTIONS( segment_cache_size_mb '5', footer_initial_read_size_bytes '12345' );",
+                OPTIONS( segment_cache_size_mb '5', footer_initial_read_size_bytes '12345', scan_concurrency '3' );",
                 dir.path().to_str().unwrap()
             ))
             .await

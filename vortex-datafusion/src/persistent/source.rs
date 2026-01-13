@@ -60,6 +60,7 @@ pub struct VortexSource {
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
+    scan_concurrency: Option<usize>,
 }
 
 impl VortexSource {
@@ -83,6 +84,7 @@ impl VortexSource {
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: None,
         }
     }
 
@@ -92,6 +94,12 @@ impl VortexSource {
         expr_convertor: Arc<dyn ExpressionConvertor>,
     ) -> Self {
         self.expression_convertor = expr_convertor;
+        self
+    }
+
+    /// Set the underlying scan concurrency. This limit is used per Vortex scan operations.
+    pub fn with_scan_concurrency(mut self, scan_concurrency: usize) -> Self {
+        self.scan_concurrency = Some(scan_concurrency);
         self
     }
 }
@@ -132,6 +140,7 @@ impl FileSource for VortexSource {
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            scan_concurrency: self.scan_concurrency,
         };
 
         Ok(Arc::new(opener))
