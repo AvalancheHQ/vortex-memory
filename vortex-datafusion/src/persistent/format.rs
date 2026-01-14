@@ -146,9 +146,9 @@ impl VortexFormatFactory {
     ///
     /// For example:
     /// ```rust
-    /// use vortex_datafusion::{VortexFormatFactory, VortexOptions};
+    /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexOptions::default());
+    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions::default());
     /// ```
     pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
@@ -193,7 +193,7 @@ impl VortexFormat {
         Self::new_with_options(session, VortexTableOptions::default())
     }
 
-    /// Creates a new instance with configured by a [`VortexOptions`].
+    /// Creates a new instance with configured by a [`VortexTableOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
         Self {
             session: session.clone(),
