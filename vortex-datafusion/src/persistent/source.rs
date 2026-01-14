@@ -33,6 +33,7 @@ use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::cache::VortexFileCache;
+use super::format::VortexTableOptions;
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
 use crate::convert::exprs::DefaultExpressionConvertor;
@@ -60,7 +61,7 @@ pub struct VortexSource {
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
-    scan_concurrency: Option<usize>,
+    options: VortexTableOptions,
 }
 
 impl VortexSource {
@@ -68,6 +69,7 @@ impl VortexSource {
         table_schema: TableSchema,
         session: VortexSession,
         file_cache: VortexFileCache,
+        options: VortexTableOptions,
     ) -> Self {
         let full_schema = table_schema.table_schema();
         let indices = (0..full_schema.fields().len()).collect::<Vec<_>>();
@@ -84,7 +86,7 @@ impl VortexSource {
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
-            scan_concurrency: None,
+            options,
         }
     }
 
@@ -97,9 +99,14 @@ impl VortexSource {
         self
     }
 
-    /// Set the underlying scan concurrency. This limit is used per Vortex scan operations.
-    pub fn with_scan_concurrency(mut self, scan_concurrency: usize) -> Self {
-        self.scan_concurrency = Some(scan_concurrency);
+    /// Returns the table options for this source.
+    pub fn options(&self) -> &VortexTableOptions {
+        &self.options
+    }
+
+    /// Set the table options for this source.
+    pub fn with_options(mut self, opts: VortexTableOptions) -> Self {
+        self.options = opts;
         self
     }
 }
@@ -140,7 +147,7 @@ impl FileSource for VortexSource {
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
-            scan_concurrency: self.scan_concurrency,
+            scan_concurrency: self.options.scan_concurrency,
         };
 
         Ok(Arc::new(opener))

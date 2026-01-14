@@ -70,7 +70,7 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 pub struct VortexFormat {
     session: VortexSession,
     file_cache: VortexFileCache,
-    opts: VortexOptions,
+    opts: VortexTableOptions,
 }
 
 impl Debug for VortexFormat {
@@ -87,7 +87,7 @@ config_namespace! {
     /// Can be set through a DataFusion [`SessionConfig`].
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
-    pub struct VortexOptions {
+    pub struct VortexTableOptions {
         /// The size of the in-memory [`vortex::file::Footer`] cache.
         pub footer_cache_size_mb: usize, default = 64
         /// The size of the in-memory segment cache.
@@ -97,18 +97,20 @@ config_namespace! {
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
         /// during footer parsing.
         pub footer_initial_read_size_bytes: usize, default = DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES
-        /// The per-file Vortex scan concurrency.
+        /// The intra-partition scan concurrency, controlling the number of row splits to process
+        /// concurrently per-thread within each file. This does not affect the overall parallelism
+        /// across partitions, which is controlled by DataFusion's execution configuration.
         pub scan_concurrency: Option<usize>, default = None
     }
 }
 
-impl Eq for VortexOptions {}
+impl Eq for VortexTableOptions {}
 
 /// Minimal factory to create [`VortexFormat`] instances.
 #[derive(Debug)]
 pub struct VortexFormatFactory {
     session: VortexSession,
-    options: Option<VortexOptions>,
+    options: Option<VortexTableOptions>,
 }
 
 impl GetExt for VortexFormatFactory {
@@ -133,7 +135,7 @@ impl VortexFormatFactory {
     /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
     ///
     /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
-    pub fn new_with_options(session: VortexSession, options: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSession, options: VortexTableOptions) -> Self {
         Self {
             session,
             options: Some(options),
@@ -148,7 +150,7 @@ impl VortexFormatFactory {
     ///
     /// let factory = VortexFormatFactory::new().with_options(VortexOptions::default());
     /// ```
-    pub fn with_options(mut self, options: VortexOptions) -> Self {
+    pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
         self
     }
@@ -188,11 +190,11 @@ impl FileFormatFactory for VortexFormatFactory {
 impl VortexFormat {
     /// Create a new instance with default options.
     pub fn new(session: VortexSession) -> Self {
-        Self::new_with_options(session, VortexOptions::default())
+        Self::new_with_options(session, VortexTableOptions::default())
     }
 
     /// Creates a new instance with configured by a [`VortexOptions`].
-    pub fn new_with_options(session: VortexSession, opts: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
         Self {
             session: session.clone(),
             file_cache: VortexFileCache::new(
@@ -206,7 +208,7 @@ impl VortexFormat {
     }
 
     /// Return the format specific configuration
-    pub fn options(&self) -> &VortexOptions {
+    pub fn options(&self) -> &VortexTableOptions {
         &self.opts
     }
 }
@@ -426,13 +428,12 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        let mut source =
-            VortexSource::new(table_schema, self.session.clone(), self.file_cache.clone());
-        if let Some(scan_concurrency) = self.opts.scan_concurrency {
-            source = source.with_scan_concurrency(scan_concurrency);
-        }
-
-        Arc::new(source) as _
+        Arc::new(VortexSource::new(
+            table_schema,
+            self.session.clone(),
+            self.file_cache.clone(),
+            self.opts.clone(),
+        ))
     }
 }
 
@@ -495,7 +496,7 @@ mod tests {
 
     #[test]
     fn format_plumbs_footer_initial_read_size() {
-        let mut opts = VortexOptions::default();
+        let mut opts = VortexTableOptions::default();
         opts.set("footer_initial_read_size_bytes", "12345").unwrap();
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
