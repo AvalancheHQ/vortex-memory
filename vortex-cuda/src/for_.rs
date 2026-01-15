@@ -40,7 +40,7 @@ impl CudaExecute for ForExecutor {
     }
 }
 
-async fn execute_for(array: &FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+pub async fn execute_for(array: &FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     if array.is_empty() {
         return Ok(array.to_array().to_canonical());
     }

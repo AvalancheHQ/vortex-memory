@@ -152,7 +152,6 @@ impl CudaExecutionCtx {
     /// Synchronizes the stream
     ///
     /// On `synchronize` the host waits for all pending operations of the stream to complete.
-    #[cfg(test)]
     pub fn synchronize(&self) -> VortexResult<()> {
         self.stream
             .synchronize()
