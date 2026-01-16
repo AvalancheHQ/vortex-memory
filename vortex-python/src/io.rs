@@ -6,6 +6,7 @@ use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
+use pyo3_object_store::PyObjectStore;
 use tokio::fs::File;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -21,6 +22,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
+use vortex::io::ObjectStoreWriter;
 
 use crate::PyVortex;
 use crate::SESSION;
@@ -32,6 +34,8 @@ use crate::dataset::PyVortexDataset;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
+use crate::object_store_urls::ResolvedStore;
+use crate::object_store_urls::resolve_store;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -52,6 +56,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : str
 ///     The URL to read from.
+/// store : vortex.store.ObjectStore | None, optional
+///     Pre-configured object store with credentials and settings.
+///     If provided, uses this store's configuration.
+///     If None, checks session registry for matching URL pattern.
+///     If not found, raises VortexError.
 /// projection : list[str | int] | None
 ///     The columns to read identified either by their index or name.
 /// row_filter : Expr | None
@@ -99,20 +108,42 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Read an array from a local file URL:
 ///
 /// ```python
-/// >>> a = vx.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
+/// >>> a = vx.io.read_url("file:///path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
+///
+/// Read from S3 with explicit credentials:
+///
+/// ```python
+/// >>> from vortex import store as S
+/// >>> store = S.S3Store(
+/// ...     bucket="my-bucket",
+/// ...     region="us-east-1",
+/// ...     access_key_id="AKIA...",
+/// ...     secret_access_key="..."
+/// ... )
+/// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
 /// ```
 ///
 #[pyfunction]
-#[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None, row_range = None))]
+#[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
     py: Python<'py>,
     url: &str,
+    store: Option<Bound<'py, PyAny>>,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> PyResult<PyArrayRef> {
-    let dataset = py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?;
+    let store_arc = if let Some(store_obj) = store {
+        let py_store: PyObjectStore = store_obj.extract()?;
+        Some(py_store.into_inner())
+    } else {
+        None
+    };
+
+    let dataset =
+        py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
     dataset.to_array(projection, row_filter, indices, row_range)
 }
 
@@ -167,15 +198,31 @@ pub fn read_url<'py>(
 ///
 /// :func:`vortex.io.VortexWriteOptions`
 #[pyfunction]
-#[pyo3(signature = (iter, path))]
-pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyResult<()> {
+#[pyo3(signature = (iter, path, *, store = None))]
+pub fn write(
+    py: Python,
+    iter: PyIntoArrayIterator,
+    path: &str,
+    store: Option<PyObjectStore>,
+) -> PyResult<()> {
     py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
-            let file = File::create(path).await?;
-            SESSION
-                .write_options()
-                .write(file, iter.into_inner().into_array_stream())
-                .await
+            match resolve_store(path, store.map(|x| x.into_inner()))? {
+                ResolvedStore::ObjectStore(store, path) => {
+                    let store = ObjectStoreWriter::new(store, &path).await?;
+                    SESSION
+                        .write_options()
+                        .write(store, iter.into_inner().into_array_stream())
+                        .await
+                }
+                ResolvedStore::Path(path) => {
+                    let w = File::open(path).await?;
+                    SESSION
+                        .write_options()
+                        .write(w, iter.into_inner().into_array_stream())
+                        .await
+                }
+            }
         })
     })?;
 

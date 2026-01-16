@@ -4,10 +4,12 @@
 from ..type_aliases import IntoArrayIterator
 from .arrays import Array
 from .expr import Expr
+from .store import *
 
 def read_url(
     url: str,
     *,
+    store = None,
     projection: list[str] | list[int] | None = None,
     row_filter: Expr | None = None,
     indices: Array | None = None,

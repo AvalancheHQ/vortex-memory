@@ -81,6 +81,10 @@ from .arrays import (
 from .file import VortexFile, open
 from .scan import RepeatedScan
 
+# for object store integration
+from ._lib import store
+from ._lib import exceptions
+
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
 # Resolve the installed distribution version so it is available as vortex.__version__.
@@ -96,12 +100,14 @@ __all__ = [
     # --- Modules ---
     "arrays",
     "dataset",
+    "exceptions",
     "expr",
     "file",
     "scan",
     "io",
     "registry",
     "ray",
+    "store",
     # --- Objects and Functions ---
     "array",
     "compress",

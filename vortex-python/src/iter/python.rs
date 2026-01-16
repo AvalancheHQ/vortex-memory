@@ -34,8 +34,10 @@ impl Iterator for PythonArrayIterator {
     type Item = VortexResult<ArrayRef>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Check for any signals on this chunk.
         Python::attach(|py| {
             let mut iter = self.iter.clone_ref(py).into_bound(py);
+            py.check_signals().expect("Python signal handler failed");
             iter.next().map(|array| {
                 array
                     .and_then(|array| array.extract::<PyArrayRef>())
