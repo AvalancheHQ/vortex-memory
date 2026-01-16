@@ -27,6 +27,7 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
 
         // Build views directly from offsets - this is much faster than iterating
         // and appending one by one because we keep the bytes buffer as-is.
+        #[expect(clippy::cast_possible_truncation, reason = "BinaryView offset is u32")]
         let views: Buffer<BinaryView> = match_each_integer_ptype!(offsets.ptype(), |O| {
             let offsets_slice = offsets.as_slice::<O>();
             let bytes_slice = bytes.as_ref();
@@ -44,9 +45,8 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
 
         // Create VarBinViewArray with the original bytes buffer and computed views
         // SAFETY: views are correctly computed from valid offsets
-        let varbinview = unsafe {
-            VarBinViewArray::new_unchecked(views, Arc::from([bytes]), dtype, validity)
-        };
+        let varbinview =
+            unsafe { VarBinViewArray::new_unchecked(views, Arc::from([bytes]), dtype, validity) };
 
         Canonical::VarBinView(varbinview)
     }
