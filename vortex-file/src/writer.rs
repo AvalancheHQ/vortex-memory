@@ -219,7 +219,7 @@ impl VortexWriteOptions {
             write.write_all(buffer).await?;
         }
 
-        write.shutdown().await?;
+        write.flush().await?;
 
         Ok(WriteSummary {
             footer,

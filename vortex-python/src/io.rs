@@ -23,6 +23,7 @@ use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::ObjectStoreWriter;
+use vortex::io::VortexWrite;
 
 use crate::PyVortex;
 use crate::SESSION;
@@ -209,18 +210,22 @@ pub fn write(
         TOKIO_RUNTIME.block_on(async move {
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
-                    let store = ObjectStoreWriter::new(store, &path).await?;
+                    let mut store = ObjectStoreWriter::new(store, &path).await?;
                     SESSION
                         .write_options()
-                        .write(store, iter.into_inner().into_array_stream())
-                        .await
+                        .write(&mut store, iter.into_inner().into_array_stream())
+                        .await?;
+                    store.shutdown().await?;
+                    VortexResult::Ok(())
                 }
                 ResolvedStore::Path(path) => {
-                    let w = File::open(path).await?;
+                    let mut w = File::open(path).await?;
                     SESSION
                         .write_options()
-                        .write(w, iter.into_inner().into_array_stream())
-                        .await
+                        .write(&mut w, iter.into_inner().into_array_stream())
+                        .await?;
+                    w.shutdown().await?;
+                    VortexResult::Ok(())
                 }
             }
         })
