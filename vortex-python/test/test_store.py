@@ -7,8 +7,6 @@ from vortex import store as S
 def test_store_roundtrip(tmpdir_factory):
     data_dir = tmpdir_factory.mktemp("data")
 
-    print(f"data_dir = {data_dir}")
-
     # create a local store to write into
     local = S.LocalStore(prefix=str(data_dir))
 
