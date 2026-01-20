@@ -616,12 +616,7 @@ jobs:
           - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c7i.8xlarge
-      - extras=s3-cache
-      - image=ubuntu24-full-x64
-      - tag=bench-codspeed-${{ matrix.shard }}
+    runs-on: ubuntu-latest
     steps:
       - uses: runs-on/action@v2
         with:
